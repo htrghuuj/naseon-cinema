@@ -1,0 +1,16 @@
+{
+  "name": "naseon-cinema",
+  "version": "1.0.0",
+  "private": true,
+  "description": "나선 시네마 — 같이 보는 유튜브 영화관 서버",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
