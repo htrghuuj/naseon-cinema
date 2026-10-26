@@ -81,7 +81,7 @@ kbd{display:inline-block;min-width:20px;padding:1px 6px;border-radius:5px;border
 
 /* now playing ticket */
 #ticket{position:absolute;top:calc(12px + var(--safe-t));left:50%;transform:translateX(-50%);width:min(440px,40vw);
-  display:flex;flex-direction:column;gap:8px}
+  display:flex;flex-direction:column;gap:8px;z-index:3} /* 상영·투표 카드가 채팅 기록보다 위 (가로 폰에서 겹쳐도 투표 버튼이 눌리게) */
 .stub{position:relative;padding:9px 22px 10px;background:var(--ink-a);border-radius:10px;
   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   -webkit-mask:radial-gradient(circle 7px at 0 50%,#0000 97%,#000) left/51% 100% no-repeat,radial-gradient(circle 7px at 100% 50%,#0000 97%,#000) right/51% 100% no-repeat;
@@ -323,11 +323,6 @@ body.touch.chatting #chat{z-index:6}
 #hpHud em{display:block;width:96px;height:6px;border-radius:3px;background:rgba(243,238,220,.15);overflow:hidden}
 #hpHud i{display:block;height:100%;width:100%;background:var(--exit);transition:width .15s}
 #hpHud b{min-width:22px;text-align:right;font-variant-numeric:tabular-nums}
-#fistFx{position:absolute;right:22%;bottom:6%;font-size:110px;line-height:1;opacity:0;pointer-events:none;filter:drop-shadow(0 10px 18px rgba(0,0,0,.6))}
-#fistFx.punch{animation:punchfx .24s ease-out}
-#fistFx.kick{right:auto;left:50%;animation:kickfx .36s ease-out}
-@keyframes punchfx{0%{opacity:1;transform:translate(70px,90px) scale(.8)}45%{opacity:1;transform:translate(-26vw,-24vh) scale(1.3)}100%{opacity:0;transform:translate(40px,60px) scale(.9)}}
-@keyframes kickfx{0%{opacity:1;transform:translate(-50%,140px) rotate(-30deg)}50%{opacity:1;transform:translate(-50%,-22vh) rotate(10deg) scale(1.3)}100%{opacity:0;transform:translate(-50%,120px)}}
 #hurtFx{position:fixed;inset:0;z-index:6;pointer-events:none;opacity:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(220,20,20,.6))}
 #hurtFx.on{animation:hurt .4s ease-out}
 @keyframes hurt{0%{opacity:1}100%{opacity:0}}
@@ -335,9 +330,7 @@ body.touch.chatting #chat{z-index:6}
   background:radial-gradient(ellipse at center,rgba(60,0,10,.35),rgba(40,0,6,.8));text-shadow:0 2px 10px #000}
 #downFx b{font:400 64px/1 var(--marquee);color:#FF7A6B}
 #downFx span{font-size:16px;font-weight:700}
-body.big #hpHud,body.big #fistFx{display:none!important}
-body.touch #fistFx{font-size:84px}
-@media (prefers-reduced-motion:reduce){ #fistFx.punch,#fistFx.kick{animation-duration:.01s} }
+body.big #hpHud{display:none!important}
 body.touch.portrait #hpHud{top:calc(50% - 48px)}
 
 /* 기기 간 연결 */
@@ -406,7 +399,6 @@ body.touch.portrait #netBanner{top:calc(150px + var(--safe-t))}
   <div id="hints"></div>
   <div id="hand" hidden></div>
   <div id="hpHud" hidden><span>❤</span><em><i></i></em><b>100</b></div>
-  <div id="fistFx"></div>
 
   <div id="bag">
     <div id="bagSlots" hidden></div>
@@ -732,6 +724,9 @@ class CinemaServer {
     this.sparOn = restore?.sparOn ?? CONFIG.SPARRING_BOT;
     this.ownerId = null; // 방을 연 사람(서버 역할 탭의 주인) — 자동으로 운영진·방장
     try { this.adminPw = localStorage.getItem('starlight:adminpw') || ''; } catch { this.adminPw = ''; }
+    // 숨은 방장 열쇠: 채팅창에 "/방장 열쇠"를 치면 그 사람이 방장이 되고, 그 기기는 다음부터 들어오면 자동으로 방장
+    // (Render 서버는 OWNER_KEY 환경 변수. 없으면 운영진 비밀번호로 대신함)
+    try { this.ownerKey = localStorage.getItem('starlight:ownerkey') || ''; } catch { this.ownerKey = ''; }
     if (this.botsOn) this.spawnBots();
     if (this.sparOn) this.spawnSparring();
     this.timers = [setInterval(() => this.tick(), 500), setInterval(() => this.broadcastPositions(), 100)];
@@ -747,9 +742,11 @@ class CinemaServer {
   // ---------- 도우미 ----------
   nid() { return 'q' + (this.seq++).toString(36); }
   pwOk(pw) { pw = String(pw ?? ''); return !!pw && ((this.adminPw && pw === this.adminPw) || (CONFIG.ADMIN_PASSWORD && pw === CONFIG.ADMIN_PASSWORD)); }
+  ownerOk(k) { k = String(k ?? '').trim(); return !!k && !!(this.ownerKey ? k === this.ownerKey : this.pwOk(k)); }
   rate(id, key, ms) { const k = id + ':' + key, t = Date.now(), last = this.rl.get(k) || 0; if (t - last < ms) return false; this.rl.set(k, t); return true; }
   isAway(u) { return Date.now() - u.lastActive > CONFIG.AWAY_MS; }
-  eligible() { return [...this.users.values()].filter(u => !this.isAway(u)); }
+  // 투표할 수 있는 사람: 부재중이 아닌 사람 (투표를 안 하는 스파링봇은 빼고 셈)
+  eligible() { return [...this.users.values()].filter(u => !this.isAway(u) && u.id !== SPARRING.id); }
   toast(id, text, err = false) { this.send(id, { t: 'toast', text, err }); }
   sys(text, warn = false) {
     const m = { t: 'chat', kind: 'sys', text, warn, at: Date.now() };
@@ -802,7 +799,8 @@ class CinemaServer {
     this.send('*', { t: 'pos', l });
   }
   pickHost() {
-    const humans = [...this.users.values()].filter(u => !u.isBot).sort((a, b) => (b.id === this.ownerId) - (a.id === this.ownerId) || a.joinedAt - b.joinedAt);
+    // 방을 연 기기 → 숨은 방장 열쇠를 가진 사람 → 먼저 들어온 사람 순서 (방장이 나가면 다음 사람에게 자동으로 넘어감)
+    const humans = [...this.users.values()].filter(u => !u.isBot).sort((a, b) => (b.id === this.ownerId) - (a.id === this.ownerId) || !!b.owner - !!a.owner || a.joinedAt - b.joinedAt);
     const h = humans[0]?.id || null;
     if (h !== this.hostId) { this.hostId = h; if (h) this.sys(`👑 ${this.users.get(h).name} 님이 방장이 됐어요`); this.dirty(); }
   }
@@ -969,6 +967,9 @@ class CinemaServer {
       }
       case 'chat': {
         const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 200); if (!text) return;
+        // 방장 명령은 채팅으로 절대 내보내지 않음 (예전 화면에서 보내도 안전하게)
+        const oc = text.match(/^\/(방장|host)(?:\s+(.*))?$/i);
+        if (oc) return this.receive(id, { t: 'owner', key: oc[2] || '' });
         if (!this.rate(id, 'chat', 600)) return this.toast(id, '조금 천천히 말해 주세요', true);
         active(); return this.talk(u, text);
       }
@@ -1161,6 +1162,18 @@ class CinemaServer {
         u.admin = true; this.sys(`🛡 ${u.name} 님이 운영진으로 들어왔어요`); this.toast(id, '운영진으로 로그인했어요'); return this.dirty();
       }
       case 'attack': { active(); return this.attack(u, m.kind, m.p, m.ry); }
+      case 'owner': {
+        const key = String(m.key ?? '').trim();
+        if (/^(해제|끄기|off)$/i.test(key) || m.off) {
+          u.owner = false; this.send(id, { t: 'ownerOk', off: true }); this.toast(id, '이 기기에서 자동 방장을 껐어요');
+          return this.pickHost();
+        }
+        if (!this.rate(id, 'owner', 2000)) return this.toast(id, '잠시 후 다시 시도해 주세요', true);
+        if (!this.ownerOk(key)) return this.toast(id, '명령어가 맞지 않아요', true);
+        u.owner = true; active(); this.send(id, { t: 'ownerOk', key });
+        this.toast(id, '👑 방장을 가져왔어요. 이 기기로 다시 들어오면 자동으로 방장이 돼요');
+        return this.pickHost();
+      }
       case 'pvp': {
         if (!isHost && !isAdmin) return this.toast(id, '싸움 허용은 방장이 바꿀 수 있어요', true);
         this.pvp = !!m.on; this.sys(this.pvp ? '🥊 방장이 싸움을 켰어요. 주먹(F)과 발차기(G)를 쓸 수 있어요' : '🕊️ 방장이 싸움을 껐어요');
@@ -1197,6 +1210,7 @@ class CinemaServer {
     if (isNew && m.wear) for (const s of ['face', 'head']) if (m.wear[s] && this.bagOf(u)[m.wear[s]]) u.wear[s] = m.wear[s];
     if (isNew && m.hold && this.bagOf(u)[m.hold]) u.hold = m.hold;
     if (isNew && m.admin && this.pwOk(m.admin)) u.admin = true;
+    if (m.owner) u.owner = this.ownerOk(m.owner); // 저장해 둔 방장 열쇠로 조용히 들어옴
     if (id === this.ownerId) u.admin = true;
     this.send(id, { t: 'welcome', you: id, chat: this.chatLog.slice(-40), board: this.board });
     this.sendBag(u);
@@ -2037,7 +2051,18 @@ const AV_GEO = {
   stick: new THREE.CylinderGeometry(0.018, 0.018, 0.3, 10),
   fist: new THREE.SphereGeometry(0.085, 12, 10),
   leg: new THREE.CapsuleGeometry(0.075, 0.42, 4, 8),
+  // 팔: 어깨(원점)에서 앞(-z)으로 길이 1 → scale.z로 늘였다 줄였다 함
+  arm: (() => { const g = new THREE.CylinderGeometry(0.05, 0.062, 1, 10); g.rotateX(Math.PI / 2); g.translate(0, 0, -0.5); return g; })(),
+  shoe: new THREE.BoxGeometry(0.13, 0.09, 0.24),
 };
+const SHOE_MAT = new THREE.MeshStandardMaterial({ color: 0x23233a, roughness: .6 });
+// 주먹·발차기 움직임: 빠르게 뻗고(ext) → 잠깐 멈췄다가(hold) → 천천히 거둠. 0~1을 돌려줌
+function swingCurve(p, ext = 0.38, hold = 0.52) {
+  if (p <= 0 || p >= 1) return 0;
+  if (p < ext) { const k = p / ext; return 1 - (1 - k) ** 3; }
+  if (p < hold) return 1;
+  const k = (p - hold) / (1 - hold); return 1 - k * k;
+}
 const AV_MAT = {
   eye: new THREE.MeshBasicMaterial({ color: 0x111111 }),
   lens: new THREE.MeshStandardMaterial({ color: 0x0b1a2a, roughness: .2, metalness: .4, emissive: 0x0a3a55, emissiveIntensity: .6 }),
@@ -2069,9 +2094,12 @@ class Avatar {
     this.handSprite = null; this.handEmoji = null;
     // 주먹·발 (평소엔 숨겨 두고 공격할 때만 보임)
     this.fist = new THREE.Mesh(AV_GEO.fist, this.headMat); this.fist.visible = false;
+    this.arm = new THREE.Mesh(AV_GEO.arm, this.bodyMat); this.arm.visible = false;
     this.legG = new THREE.Group(); this.legG.position.set(0.1, 0.42, 0);
-    const leg = new THREE.Mesh(AV_GEO.leg, this.bodyMat); leg.position.y = -0.28; this.legG.add(leg); this.legG.visible = false;
-    g.add(this.fist, this.legG);
+    const leg = new THREE.Mesh(AV_GEO.leg, this.bodyMat); leg.position.y = -0.28; this.legG.add(leg);
+    const shoe = new THREE.Mesh(AV_GEO.shoe, SHOE_MAT); shoe.position.set(0, -0.6, -0.05); this.legG.add(shoe);
+    this.legG.visible = false; this.side = -1;
+    g.add(this.fist, this.arm, this.legG);
     this.labelTex = canvasTex(512, 128, (c, w, h, txt, color, dim, hp) => {
       c.font = `700 46px ${F_UI}`; const tw = Math.min(w - 20, c.measureText(txt).width + 64);
       c.fillStyle = 'rgba(10,14,34,.72)'; rrect(c, (w - tw) / 2, 14, tw, 84, 42); c.fill();
@@ -2113,7 +2141,7 @@ class Avatar {
     this.target.set(x, y, z); this.tRy = ry;
     if (!this.hasPos) { this.g.position.copy(this.target); this.ry = ry; this.hasPos = true; }
   }
-  swing(kind) { this.anim = { kind, t0: performance.now() }; }
+  swing(kind) { if (kind === 'punch') this.side = -this.side; this.anim = { kind, t0: performance.now() }; }
   hurt() { this.hurtT = performance.now(); }
   respawned() { this.invulnUntil = performance.now() + 2500; this.hasPos = false; }
   update(dt, t) {
@@ -2126,12 +2154,17 @@ class Avatar {
     this.bodyMat.emissive.setRGB(hk * 0.9, 0, 0); this.headMat.emissive.setRGB(hk * 0.9, 0, 0);
     this.body.visible = this.headG.visible = !(this.invulnUntil > now && Math.floor(now / 90) % 2);
     // 주먹·발차기 동작
-    this.fist.visible = this.legG.visible = false;
+    // 주먹: 어깨에서 팔이 앞으로 쭉 뻗어 나감(왼손·오른손 번갈아) / 발차기: 다리가 앞으로 올라감
+    this.fist.visible = this.arm.visible = this.legG.visible = false;
     if (this.anim) {
-      const dur = this.anim.kind === 'kick' ? 360 : 240, p = (now - this.anim.t0) / dur;
+      const kick = this.anim.kind === 'kick', dur = this.anim.dur || (kick ? 380 : 260), p = (now - this.anim.t0) / dur;
       if (p >= 1) this.anim = null;
-      else if (this.anim.kind === 'punch') { this.fist.visible = true; this.fist.position.set(0.17, 0.98, -0.18 - 0.48 * Math.sin(Math.PI * p)); }
-      else { this.legG.visible = true; this.legG.rotation.x = 1.35 * Math.sin(Math.PI * p); }
+      else if (!kick) {
+        const e = swingCurve(p), x = this.side * 0.2, y = this.body.position.y + 0.45, z0 = -0.04, reach = 0.12 + 0.55 * e;
+        this.arm.visible = this.fist.visible = true;
+        this.arm.position.set(x, y, z0); this.arm.scale.set(1, 1, reach);
+        this.fist.position.set(x, y, z0 - reach - 0.03);
+      } else { this.legG.visible = true; this.legG.rotation.x = 1.45 * swingCurve(p, 0.42, 0.58); }
     }
     if (this.seat) {
       const s = this.seat;
@@ -2688,6 +2721,93 @@ const UI = {
 //  주먹다짐 (화면 쪽) — F 주먹, G 발차기 / 잠근 마우스면 왼쪽·오른쪽 버튼
 //  판정은 서버가 하고, 여기서는 동작·효과음·밀려남·쓰러짐 화면만 보여 줌
 // ============================================================
+// ---------- 1인칭 팔·다리 ----------
+// 공격하는 동안에만 카메라 앞에 따로 그려 줌 → 소매 낀 팔이 화면 아래에서 조준점 쪽으로 뻗었다 돌아옴
+// (좌표는 카메라 기준: 오른쪽 +x, 위 +y, 앞 -z)
+const VM = {
+  scene: null, cam: null, anim: null, side: -1,
+  build() {
+    const sc = this.scene = new THREE.Scene();
+    sc.add(new THREE.HemisphereLight(0xfff1dc, 0x1a1c3a, 2.2));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(0.5, 1, 0.8); sc.add(sun);
+    this.cam = new THREE.PerspectiveCamera(70, 1, 0.01, 10);
+    this.sleeve = new THREE.MeshLambertMaterial(); this.skin = new THREE.MeshLambertMaterial(); this.pants = new THREE.MeshLambertMaterial();
+    this.shoeMat = new THREE.MeshLambertMaterial({ color: 0x3a4180 }); this.soleMat = new THREE.MeshLambertMaterial({ color: 0xf4efe2 });
+    this.laceMat = new THREE.MeshLambertMaterial({ color: 0xf4efe2 });
+    // 팔다리: 원점에서 +z로 길이 1 → lookAt으로 방향, scale.z로 길이를 맞춤
+    const limb = (r0, r1) => { const g = new THREE.CylinderGeometry(r1, r0, 1, 14); g.rotateX(Math.PI / 2); g.translate(0, 0, 0.5); return g; };
+    this.arm = new THREE.Mesh(limb(0.062, 0.05), this.sleeve);
+    this.cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.056, 0.056, 0.035, 14).rotateX(Math.PI / 2), this.sleeve);
+    // 주먹: 손등 + 접은 손가락 마디 + 엄지
+    this.fist = new THREE.Group();
+    const back = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 12), this.skin); back.scale.set(1.05, 0.85, 1.15); this.fist.add(back);
+    for (let i = 0; i < 4; i++) { const k = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 8), this.skin); k.position.set(-0.039 + i * 0.026, 0.018, 0.055); this.fist.add(k); }
+    this.thumb = new THREE.Mesh(new THREE.CapsuleGeometry(0.016, 0.04, 4, 8), this.skin); this.thumb.rotation.z = Math.PI / 2; this.thumb.position.set(0, -0.035, 0.05); this.fist.add(this.thumb);
+    // 다리: 바지 + 운동화. 발끝이 위, 밑창이 앞(상대 쪽)을 향하는 앞차기 자세
+    // (신발 기준: 발끝 +y, 밑창 -z, 발등 +z)
+    this.leg = new THREE.Mesh(limb(0.1, 0.075), this.pants);
+    this.foot = new THREE.Group();
+    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.27, 0.1), this.shoeMat); upper.position.set(0, 0.11, 0.015); this.foot.add(upper);
+    const toe = new THREE.Mesh(new THREE.SphereGeometry(0.07, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), this.shoeMat); toe.scale.set(1, 0.7, 0.72); toe.position.set(0, 0.245, 0.015); this.foot.add(toe);
+    const sole = new THREE.Mesh(new THREE.BoxGeometry(0.155, 0.31, 0.04), this.soleMat); sole.position.set(0, 0.115, -0.05); this.foot.add(sole);
+    for (let i = 0; i < 3; i++) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.012, 0.012), this.laceMat); l.position.set(0, 0.07 + i * 0.045, 0.068); this.foot.add(l); }
+    for (const sx of [-1, 1]) { const st = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.16, 0.035), this.sleeve); st.position.set(sx * 0.071, 0.1, 0.01); st.rotation.x = 0.5; this.foot.add(st); }
+    sc.add(this.arm, this.cuff, this.fist, this.leg, this.foot);
+  },
+  // 입장할 때 미리 만들고 그래픽 카드에 올려 둠 → 첫 주먹에서 멈칫하지 않게
+  prepare(r) {
+    try { if (!this.scene) this.build(); this.paint(); r.compile(this.scene, this.cam); } catch {}
+  },
+  paint() {
+    const col = S.myPub?.color || S.profile.color || '#7FB2FF';
+    this.sleeve.color.set(col); this.skin.color.copy(shade(col, .18)); this.pants.color.copy(shade(col, -.14));
+  },
+  start(kind) {
+    if (!this.scene) this.build();
+    this.paint();
+    if (kind === 'punch') this.side = -this.side; // 왼손·오른손 번갈아
+    this.anim = { kind, el: 0, last: null, dur: kind === 'kick' ? 380 : 260 };
+  },
+  render(r, mainCam) {
+    const a = this.anim; if (!a) return;
+    // 한 장면에 최대 0.05초씩만 흐르게 함 → 폰이 잠깐 버벅여도 동작이 통째로 건너뛰지 않음
+    const now = performance.now();
+    if (a.last != null) a.el += Math.min(50, now - a.last);
+    a.last = now;
+    const p = a.el / a.dur;
+    if (p >= 1 || S.big || S.dead || S.seated) { this.anim = null; return; }
+    const c = this.cam;
+    if (c.fov !== mainCam.fov || c.aspect !== mainCam.aspect) { c.fov = mainCam.fov; c.aspect = mainCam.aspect; c.updateProjectionMatrix(); }
+    // 세로 폰처럼 시야가 넓으면 팔다리가 작아 보이니 조금 키움
+    const big = clamp(Math.tan(mainCam.fov * Math.PI / 360) / Math.tan(31 * Math.PI / 180), 1, 1.6);
+    const V = (x, y, z) => new THREE.Vector3(x * big, y * big, z);
+    const kick = a.kind === 'kick';
+    this.arm.visible = this.cuff.visible = this.fist.visible = !kick;
+    this.leg.visible = this.foot.visible = kick;
+    if (!kick) {
+      const e = swingCurve(p), s = this.side;
+      const from = V(s * 0.26, -0.36, -0.28), to = V(s * 0.045, -0.06, -0.78);
+      const hand = from.lerp(to, e), shoulder = V(s * 0.34, -0.5, 0.12);
+      this.place(this.arm, shoulder, hand, 0.06);
+      this.cuff.position.copy(hand); this.cuff.quaternion.copy(this.arm.quaternion); this.cuff.translateZ(-0.075);
+      this.fist.position.copy(hand); this.fist.quaternion.copy(this.arm.quaternion);
+      this.fist.rotateZ(s * (0.35 + 1.1 * e)); // 뻗으면서 주먹을 비틀어 마디가 앞을 향하게
+      this.thumb.position.x = -s * 0.012;
+    } else {
+      const e = swingCurve(p, 0.42, 0.58);
+      const from = V(0.2, -0.78, -0.25), to = V(0.06, -0.36, -0.95);
+      const ankle = from.lerp(to, e), hip = V(0.16, -1.15, 0.2);
+      this.place(this.leg, hip, ankle, 0.0);
+      // 올라오는 동안엔 발끝이 앞을 보다가, 다 뻗으면 발끝이 서고 밑창이 상대를 향함. 옆선이 조금 보이게 비스듬히
+      this.foot.position.copy(ankle); this.foot.quaternion.identity();
+      this.foot.rotateY(-0.55); this.foot.rotateX(-0.2 - 1.0 * (1 - e));
+    }
+    r.autoClear = false; r.clearDepth(); r.render(this.scene, c); r.autoClear = true;
+  },
+  // 팔다리 하나를 a에서 b까지 잇기 (끝에서 gap만큼 짧게)
+  place(m, a, b, gap) { m.position.copy(a); m.lookAt(b); m.scale.set(1, 1, Math.max(0.01, a.distanceTo(b) - gap)); },
+};
+
 const Fight = {
   lastAtk: 0, kb: null, shakeUntil: 0, downAt: 0, lastCombat: 0, warnedSeat: 0,
   attack(kind) {
@@ -2697,8 +2817,7 @@ const Fight = {
     if (S.room && !S.room.pvp) { if (Date.now() - this.warnedSeat > 4000) { this.warnedSeat = Date.now(); UI.toast('지금은 방장이 싸움을 꺼 뒀어요', true); } return; }
     const now = performance.now(); if (now - this.lastAtk < K.cd) return;
     this.lastAtk = now; this.lastCombat = now;
-    const fx = $('#fistFx'); fx.textContent = kind === 'kick' ? '🦶' : '👊';
-    fx.className = ''; void fx.offsetWidth; fx.className = kind;
+    VM.start(kind);
     this.sfx('swing');
     net.send({ t: 'attack', kind, p: [+PL.x.toFixed(3), +PL.y.toFixed(3), +PL.z.toFixed(3)], ry: +PL.yaw.toFixed(3) });
     markActive();
@@ -2820,8 +2939,10 @@ let lastAct = 0, lastInput = Date.now();
 // ---------- 네트워크 ----------
 function sendHello(silent) {
   S.helloed = true;
-  net.send({ t: 'hello', sessionId: S.sid, name: S.profile.name, color: S.profile.color, wear: S.myPub?.wear, hold: S.myPub?.hold, admin: S.adminPw, silent });
+  net.send({ t: 'hello', sessionId: S.sid, name: S.profile.name, color: S.profile.color, wear: S.myPub?.wear, hold: S.myPub?.hold, admin: S.adminPw, owner: myOwnerKey(), silent });
 }
+// 숨은 방장 열쇠: 이 기기에만 저장 (다른 사람에게는 보내지 않음)
+function myOwnerKey() { try { return localStorage.getItem('starlight:myownerkey') || ''; } catch { return ''; } }
 net.onServer = () => sendHello(S.helloed);
 net.onMessage = m => {
   switch (m.t) {
@@ -2838,6 +2959,9 @@ net.onMessage = m => {
       for (const [id, x, y, z, ry] of m.l) if (id !== S.me) avatars.get(id)?.setTarget(x, y, z, ry);
       break;
     case 'chat': UI.addChat(m); break;
+    case 'ownerOk':
+      try { if (m.off) localStorage.removeItem('starlight:myownerkey'); else localStorage.setItem('starlight:myownerkey', m.key); } catch {}
+      break;
     case 'toast':
       UI.toast(m.text, m.err);
       if (!m.err && S.pendingPw && m.text.includes('운영진')) { S.adminPw = S.pendingPw; S.pendingPw = null; if (UI.modalKind === 'settings') UI.openSettings(); }
@@ -3134,7 +3258,10 @@ function bindHud() {
   $('#chatFilters').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.filter = b.dataset.f; UI.renderChat(); };
   // 폼 제출 대신 버튼·Enter로 처리 (미리보기처럼 폼 제출이 막힌 창에서도 동작하게)
   onEnter($('#chatInput'), () => {
-    const v = $('#chatInput').value.trim(); if (v) net.send({ t: 'chat', text: v });
+    const v = $('#chatInput').value.trim();
+    const oc = v.match(/^\/(방장|host)(?:\s+(.*))?$/i); // 방장 명령은 채팅이 아니라 따로 보냄 → 아무에게도 안 보임
+    if (oc) net.send({ t: 'owner', key: (oc[2] || '').trim() });
+    else if (v) net.send({ t: 'chat', text: v });
     $('#chatInput').value = ''; $('#chatInput').blur(); document.body.classList.remove('chatting'); markActive();
   });
   const reserve = async () => {
@@ -3248,6 +3375,7 @@ if (IS_TOUCH) document.body.classList.add('touch');
 applyGfx();
 setScreenMode(false, '');
 bindHud(); setupEntry(); UI.setPrompt(null);
+VM.prepare(W.renderer);
 window.__cinemaReady = true;
 $('#enterBtn').disabled = false; $('#enterBtn').textContent = '입장하기';
 Promise.all([document.fonts.load(`400 40px "Black Han Sans"`), document.fonts.load(`700 20px "Pretendard Variable"`)].map(p => p.catch(() => {})))
@@ -3261,10 +3389,11 @@ function frame(now) {
   updatePopups();
   animateWorld(t);
   W.renderer.render(W.scene, W.camera);
+  VM.render(W.renderer, W.camera);
   W.css.render(W.cssScene, W.camera);
 }
 requestAnimationFrame(frame);
-window.__cinema = { S, L, W, PL, net, Video, UI, avatars };
+window.__cinema = { S, L, W, PL, net, Video, UI, avatars, VM, Fight };
 
 </script>
 </body>

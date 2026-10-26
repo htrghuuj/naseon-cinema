@@ -4,6 +4,8 @@
 //  그대로 꺼내 써요. 그래서 index.html만 고쳐 올려도 서버가 같이 바뀌어요.
 //
 //  운영진 비밀번호: Render의 Environment 설정에 ADMIN_PASSWORD 를 넣으면 돼요.
+//  숨은 방장 열쇠: OWNER_KEY 를 넣으면 채팅창에 "/방장 열쇠"로 방장을 가져올 수 있어요.
+//    (OWNER_KEY 가 없으면 ADMIN_PASSWORD 가 열쇠 역할을 해요)
 // ============================================================
 const http = require('http');
 const fs = require('fs');
@@ -22,8 +24,9 @@ const sandbox = {
   console, setTimeout, setInterval, clearTimeout, clearInterval, queueMicrotask, URL, structuredClone,
   crypto: globalThis.crypto,
   localStorage: {
-    getItem: k => (k === 'starlight:adminpw' ? (process.env.ADMIN_PASSWORD || '') : (memory.has(k) ? memory.get(k) : null)),
-    setItem: (k, v) => { if (k !== 'starlight:adminpw') memory.set(k, String(v)); },
+    getItem: k => (k === 'starlight:adminpw' ? (process.env.ADMIN_PASSWORD || '') : k === 'starlight:ownerkey' ? (process.env.OWNER_KEY || '')
+      : (memory.has(k) ? memory.get(k) : null)),
+    setItem: (k, v) => { if (k !== 'starlight:adminpw' && k !== 'starlight:ownerkey') memory.set(k, String(v)); },
   },
 };
 vm.createContext(sandbox);
