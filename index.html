@@ -134,6 +134,22 @@ kbd{display:inline-block;min-width:20px;padding:1px 6px;border-radius:5px;border
 /* chat */
 #chat{position:absolute;left:calc(12px + var(--safe-l));bottom:calc(12px + var(--safe-b));width:360px;display:flex;flex-direction:column;gap:6px}
 #chatFilters{display:flex;gap:2px;align-self:flex-start;padding:3px;border-radius:9px;background:var(--ink-a);border:1px solid var(--line)}
+/* 채팅창 손잡이줄: 손잡이(⠿)나 빈 곳을 끌면 옮겨지고, ✕로 끔 */
+#chatBar{display:flex;align-items:center;gap:6px;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab}
+#chatGrip{display:grid;place-items:center;min-width:34px;height:32px;border-radius:9px;background:var(--ink-a);border:1px solid var(--line);color:var(--dim);font-size:17px;line-height:1}
+#chatBar:hover #chatGrip{color:var(--star)}
+#chatHide{margin-left:auto;width:32px;height:32px;border-radius:9px;background:var(--ink-a);border:1px solid var(--line);color:var(--dim);font-size:13px;cursor:pointer}
+#chatHide:hover{color:var(--star)}
+#chatShow{display:none;align-self:flex-start;align-items:center;gap:6px;height:38px;padding:0 15px;border-radius:999px;background:var(--ink-a);border:1px solid var(--line);
+  font-size:13px;font-weight:700;touch-action:none;cursor:grab;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+#chatShow b{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#FF5A4E;color:#fff;font-size:11px;display:grid;place-items:center}
+#chatShow b[hidden]{display:none}
+#chat.off #chatBar,#chat.off #chatLog,#chat.off #chatForm{display:none!important}
+#chat.off #chatShow{display:inline-flex}
+#chat.moved{z-index:3} /* 직접 옮긴 채팅창은 상영 카드보다 위 → 어디에 놓아도 다시 잡을 수 있게 */
+#chat.dragging{opacity:.9;z-index:8}
+#chat.dragging,#chat.dragging #chatBar,#chat.dragging #chatShow{cursor:grabbing}
+#chat.dragging #chatLog{pointer-events:none}
 #chatFilters button{font-size:12px;font-weight:600;padding:4px 10px;border-radius:7px;color:var(--dim)}
 #chatFilters button.on{background:rgba(243,238,220,.12);color:var(--star)}
 #chatLog{height:210px;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;padding:4px 2px;
@@ -388,11 +404,16 @@ body.touch.portrait #netBanner{top:calc(150px + var(--safe-t))}
   <aside id="queuePanel" class="panel" hidden></aside>
 
   <section id="chat">
-    <div id="chatFilters" role="tablist">
-      <button data-f="all" class="on">전체</button><button data-f="talk">대화</button><button data-f="sys">시스템</button>
+    <div id="chatBar">
+      <span id="chatGrip" title="끌어서 옮기기 · 두 번 누르면 처음 자리로" aria-hidden="true">⠿</span>
+      <div id="chatFilters" role="tablist">
+        <button data-f="all" class="on">전체</button><button data-f="talk">대화</button><button data-f="sys">시스템</button>
+      </div>
+      <button id="chatHide" title="채팅창 끄기 (C)" aria-label="채팅창 끄기">✕</button>
     </div>
     <div id="chatLog" aria-live="polite"></div>
     <div id="chatForm"><input id="chatInput" maxlength="200" autocomplete="off" enterkeyhint="send" placeholder="Enter로 채팅"></div>
+    <button id="chatShow" title="채팅창 켜기 (C) · 끌어서 옮기기"><span aria-hidden="true">💬</span>채팅<b id="chatUnread" hidden>0</b></button>
   </section>
 
   <div id="prompt" hidden></div>
@@ -2399,6 +2420,7 @@ const UI = {
   },
   addChat(m) {
     S.chat.push(m); if (S.chat.length > 300) S.chat.shift();
+    ChatBox.onMsg(m);
     if (!this.chatPass(m)) return;
     const log = $('#chatLog'), near = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
     log.appendChild(this.chatEl(m)); while (log.children.length > 200) log.firstChild.remove();
@@ -2623,6 +2645,8 @@ const UI = {
       <div class="setrow"><div>아바타 색</div><div id="sColors" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${AVATAR_COLORS.map(c => `<button data-color="${c}" style="width:24px;height:24px;border-radius:50%;background:${c};${c === S.profile.color ? 'box-shadow:0 0 0 2px #0E1430,0 0 0 4px #F3EEDC' : ''}"></button>`).join('')}</div></div>
       <div class="setrow"><div>영상 소리<small>로비에선 꺼지고, 통로에선 작게 들려요</small></div><input type="range" id="sVol" min="0" max="100" value="${S.vol}"></div>
       <div class="setrow"><div>둘러보기 감도</div><input type="range" id="sSens" min="1" max="10" value="${S.sens}"></div>
+      <div class="setrow"><div>채팅창<small>손잡이(⠿)를 끌면 위아래·양옆으로 옮겨져요. 손잡이를 두 번 누르면 처음 자리로 가요</small></div>
+        <div style="display:flex;gap:8px;align-items:center"><button class="ghost" id="sChatReset">처음 자리로</button><button class="toggle ${ChatBox.off ? '' : 'on'}" id="sChat" aria-label="채팅창 보이기"></button></div></div>
       <div class="setrow"><div>화질 낮추기<small>폰이 뜨거워지면 켜 보세요</small></div><button class="toggle ${S.lowGfx ? 'on' : ''}" id="sLow" aria-label="화질 낮추기"></button></div>
       ${S.isHost || S.isAdmin ? `<div class="setrow"><div>주먹다짐 허용<small>끄면 아무도 때릴 수 없어요. 앉아 있는 사람은 늘 안전해요</small></div><button class="toggle ${r?.pvp ? 'on' : ''}" id="sPvp" aria-label="주먹다짐 허용"></button></div>` : ''}
       ${S.isHost || S.isAdmin ? `<div class="setrow"><div>테스트용 관객 봇<small>혼자서도 투표와 채팅을 시험해 볼 수 있어요</small></div><button class="toggle ${r?.botsOn ? 'on' : ''}" id="sBots" aria-label="테스트 봇"></button></div>
@@ -2636,6 +2660,8 @@ const UI = {
       sh.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { S.profile.color = b.dataset.color; saveProfile(); net.send({ t: 'profile', name: S.profile.name, color: S.profile.color }); UI.openSettings(); });
       sh.querySelector('#sVol').oninput = e => { S.vol = +e.target.value; Video.setVolume(S.vol); saveProfile(); };
       sh.querySelector('#sSens').oninput = e => { S.sens = +e.target.value; saveProfile(); };
+      sh.querySelector('#sChat').onclick = e => { ChatBox.show(ChatBox.off); e.target.classList.toggle('on', !ChatBox.off); };
+      sh.querySelector('#sChatReset').onclick = () => ChatBox.reset();
       sh.querySelector('#sLow').onclick = e => { S.lowGfx = !S.lowGfx; e.target.classList.toggle('on', S.lowGfx); applyGfx(); saveProfile(); };
       const pv = sh.querySelector('#sPvp'); if (pv) pv.onclick = () => { net.send({ t: 'pvp', on: !S.room?.pvp }); pv.classList.toggle('on'); };
       const bt = sh.querySelector('#sBots'); if (bt) bt.onclick = () => { net.send({ t: 'bots', on: !S.room?.botsOn }); bt.classList.toggle('on'); };
@@ -2713,7 +2739,74 @@ const UI = {
   renderHints() {
     const locked = document.pointerLockElement === W.renderer.domElement;
     $('#hints').innerHTML = (locked ? '<span><kbd>Esc</kbd> 마우스 풀기</span>' : '<span><kbd>클릭</kbd> 둘러보기</span>') +
-      '<span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동</span><span><kbd>Shift</kbd> 달리기</span><span><kbd>E</kbd> 상호작용</span><span><kbd>F</kbd> 주먹</span><span><kbd>G</kbd> 발차기</span><span><kbd>Enter</kbd> 채팅</span><span><kbd>V</kbd> 크게 보기</span><span><kbd>Q</kbd> 예약</span><span><kbd>B</kbd> 가방</span>';
+      '<span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동</span><span><kbd>Shift</kbd> 달리기</span><span><kbd>E</kbd> 상호작용</span><span><kbd>F</kbd> 주먹</span><span><kbd>G</kbd> 발차기</span><span><kbd>Enter</kbd> 채팅</span><span><kbd>C</kbd> 채팅창</span><span><kbd>V</kbd> 크게 보기</span><span><kbd>Q</kbd> 예약</span><span><kbd>B</kbd> 가방</span>';
+  },
+};
+
+// ---------- 채팅창: 끄고 켜기, 끌어서 옮기기 ----------
+// 자리는 PC·가로 폰·세로 폰마다 따로 기억 (화면 크기가 바뀌어도 같은 쪽에 있게 비율로 저장)
+const ChatBox = {
+  st: { off: false, pos: {} }, unread: 0, lastTap: 0, suppress: false,
+  get off() { return !!this.st.off; },
+  key() { return IS_TOUCH ? (document.body.classList.contains('portrait') ? 'p' : 'l') : 'd'; },
+  init() {
+    try { Object.assign(this.st, JSON.parse(localStorage.getItem('starlight:chatbox') || '{}')); } catch {}
+    if (!this.st.pos || typeof this.st.pos !== 'object') this.st.pos = {};
+    $('#chat').classList.toggle('off', this.off);
+    $('#chatBar').addEventListener('pointerdown', e => { if (!e.target.closest('button')) this.drag(e, true); });
+    $('#chatShow').addEventListener('pointerdown', e => this.drag(e, false));
+    $('#chatShow').onclick = () => { if (this.suppress) { this.suppress = false; return; } this.show(true); };
+    $('#chatHide').onclick = () => this.show(false);
+    addEventListener('resize', () => this.place());
+  },
+  save() { try { localStorage.setItem('starlight:chatbox', JSON.stringify(this.st)); } catch {} },
+  show(on, focus = false) {
+    this.st.off = !on; this.save();
+    $('#chat').classList.toggle('off', !on);
+    if (on) { this.unread = 0; this.badge(); UI.renderChat(); }
+    else { $('#chatInput').blur(); document.body.classList.remove('chatting'); }
+    this.place();
+    if (on && focus) $('#chatInput').focus();
+  },
+  // 꺼 둔 동안 다른 사람이 한 말 수를 💬 버튼에 표시
+  onMsg(m) { if (this.off && m.kind !== 'sys' && m.id !== S.me) { this.unread++; this.badge(); } },
+  badge() { const b = $('#chatUnread'); b.hidden = !this.unread; b.textContent = this.unread > 99 ? '99+' : String(this.unread); },
+  place() {
+    const el = $('#chat'), p = this.st.pos[this.key()];
+    el.classList.toggle('moved', !!p);
+    if (!p) { el.style.left = el.style.bottom = ''; return; }
+    const r = el.getBoundingClientRect(); if (!r.width) return;
+    el.style.left = Math.round(clamp(p.fx, 0, 1) * Math.max(0, innerWidth - r.width)) + 'px';
+    el.style.bottom = Math.round(clamp(p.fy, 0, 1) * Math.max(0, innerHeight - r.height)) + 'px';
+  },
+  reset() { delete this.st.pos[this.key()]; this.save(); this.place(); UI.toast('채팅창을 처음 자리로 옮겼어요'); },
+  drag(e, bar) {
+    if (e.button > 0) return;
+    const el = $('#chat'), t = e.currentTarget, r = el.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY, x0 = r.left, b0 = innerHeight - r.bottom;
+    let moved = false; this.suppress = false; // 터치는 끈 뒤에 클릭이 안 생기니 여기서 풀어 줌
+    const dbl = bar && performance.now() - this.lastTap < 450; // 앞서 뗀 뒤 곧바로 다시 누름 → 두 번 누르기
+    if (bar) e.preventDefault();
+    try { t.setPointerCapture(e.pointerId); } catch {}
+    const mv = ev => {
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      if (!moved && Math.hypot(dx, dy) < 6) return; // 살짝 누른 건 그냥 누르기로 봄
+      moved = true; el.classList.add('dragging', 'moved');
+      el.style.left = Math.round(clamp(x0 + dx, 0, Math.max(0, innerWidth - r.width))) + 'px';
+      el.style.bottom = Math.round(clamp(b0 - dy, 0, Math.max(0, innerHeight - r.height))) + 'px';
+    };
+    const up = () => {
+      t.removeEventListener('pointermove', mv); t.removeEventListener('pointerup', up); t.removeEventListener('pointercancel', up);
+      el.classList.remove('dragging');
+      if (moved) {
+        const rr = el.getBoundingClientRect();
+        this.st.pos[this.key()] = { fx: clamp(rr.left / Math.max(1, innerWidth - rr.width), 0, 1), fy: clamp((innerHeight - rr.bottom) / Math.max(1, innerHeight - rr.height), 0, 1) };
+        this.save(); this.suppress = !bar;
+      } else if (bar) { // 손잡이 두 번 누르기 → 처음 자리
+        if (dbl) { this.lastTap = 0; this.reset(); } else this.lastTap = performance.now();
+      }
+    };
+    t.addEventListener('pointermove', mv); t.addEventListener('pointerup', up); t.addEventListener('pointercancel', up);
   },
 };
 
@@ -3103,7 +3196,7 @@ addEventListener('keydown', e => {
   if (typing()) return;
   if (UI.modalKind === 'piano' && !e.repeat && UI.pianoKey(k)) { e.preventDefault(); return; }
   if (UI.modalKind) return;
-  if (e.key === 'Enter') { e.preventDefault(); exitLock(); $('#chatInput').focus(); return; }
+  if (e.key === 'Enter') { e.preventDefault(); exitLock(); if (ChatBox.off) ChatBox.show(true); $('#chatInput').focus(); return; }
   if (e.repeat) { keys.add(e.code); return; }
   keys.add(e.code);
   if (e.code === 'KeyE') interact();
@@ -3112,6 +3205,7 @@ addEventListener('keydown', e => {
   else if (e.code === 'KeyV') setBig(!S.big);
   else if (e.code === 'KeyQ') togglePanel('#queuePanel');
   else if (e.code === 'KeyB') UI.showBag($('#bagSlots').hidden);
+  else if (e.code === 'KeyC') ChatBox.show(ChatBox.off);
   else if (e.code === 'Space' && S.seated) { e.preventDefault(); interact(); }
 });
 addEventListener('keyup', e => keys.delete(e.code));
@@ -3252,9 +3346,12 @@ function bindHud() {
   $('#mKick').addEventListener('pointerdown', e => { e.preventDefault(); Fight.attack('kick'); });
   $('#soundBtn').onclick = () => Video.unmute();
   $('#mChat').onclick = () => {
+    if (ChatBox.off) ChatBox.show(true); // 꺼 둔 채팅창은 다시 켜고 바로 입력
     const on = !document.body.classList.contains('chatting'); document.body.classList.toggle('chatting', on);
     if (on) $('#chatInput').focus(); else $('#chatInput').blur();
+    ChatBox.place();
   };
+  ChatBox.init();
   $('#chatFilters').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.filter = b.dataset.f; UI.renderChat(); };
   // 폼 제출 대신 버튼·Enter로 처리 (미리보기처럼 폼 제출이 막힌 창에서도 동작하게)
   onEnter($('#chatInput'), () => {
@@ -3262,7 +3359,7 @@ function bindHud() {
     const oc = v.match(/^\/(방장|host)(?:\s+(.*))?$/i); // 방장 명령은 채팅이 아니라 따로 보냄 → 아무에게도 안 보임
     if (oc) net.send({ t: 'owner', key: (oc[2] || '').trim() });
     else if (v) net.send({ t: 'chat', text: v });
-    $('#chatInput').value = ''; $('#chatInput').blur(); document.body.classList.remove('chatting'); markActive();
+    $('#chatInput').value = ''; $('#chatInput').blur(); document.body.classList.remove('chatting'); ChatBox.place(); markActive();
   });
   const reserve = async () => {
     const raw = $('#urlInput').value; const vid = parseYouTubeId(raw);
@@ -3352,6 +3449,7 @@ function setupEntry() {
     PL.x = L.SPAWN.x; PL.z = L.SPAWN.z; PL.y = L.TOP_Y; PL.yaw = L.SPAWN.yaw; PL.pitch = 0.05;
     S.entered = true; S.joining = false; lastAct = 0; markActive();
     UI.renderNet();
+    requestAnimationFrame(() => ChatBox.place()); // 화면이 보인 뒤에 크기를 재서 기억해 둔 자리로
   }
   $('#enterBtn').onclick = enter; onEnter($('#nameInput'), enter);
   if (!IS_TOUCH) setTimeout(() => $('#nameInput').focus(), 300);
@@ -3393,7 +3491,7 @@ function frame(now) {
   W.css.render(W.cssScene, W.camera);
 }
 requestAnimationFrame(frame);
-window.__cinema = { S, L, W, PL, net, Video, UI, avatars, VM, Fight };
+window.__cinema = { S, L, W, PL, net, Video, UI, avatars, VM, Fight, ChatBox };
 
 </script>
 </body>
